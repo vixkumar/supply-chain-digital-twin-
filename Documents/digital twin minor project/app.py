@@ -882,6 +882,861 @@ else:
         unsafe_allow_html=True,
     )
 
+# ============================================================
+# PART 1 — RESIDUAL ANALYSIS (ML VALIDATION)
+# ============================================================
+st.markdown("---")
+st.markdown(
+    '<h2 style="text-align:center; color:#e2e8f0; margin: 10px 0 5px 0;">'
+    '🔬 Residual Analysis — Stochastic Demand Modeling Validation</h2>',
+    unsafe_allow_html=True,
+)
+
+with st.container():
+    residuals = y_test.values - selected_preds
+    mean_error = float(np.mean(residuals))
+    std_error = float(np.std(residuals))
+
+    res_col1, res_col2 = st.columns(2, gap="large")
+
+    with res_col1:
+        fig_res_time = go.Figure()
+        fig_res_time.add_trace(go.Scatter(
+            x=list(range(len(residuals))), y=residuals,
+            mode="lines", name="Residual",
+            line=dict(color="#a78bfa", width=1.5),
+        ))
+        fig_res_time.add_hline(y=0, line_dash="solid", line_color="rgba(239,68,68,0.4)")
+        fig_res_time.add_hline(
+            y=mean_error, line_dash="dash", line_color="#fbbf24",
+            annotation_text=f"Mean: {mean_error:.2f}",
+            annotation_font_color="#fbbf24",
+        )
+        fig_res_time.update_layout(
+            title="Residual Over Time (Actual − Predicted)",
+            xaxis_title="Timestep", yaxis_title="Residual",
+            height=350, **PLOTLY_LAYOUT,
+        )
+        st.plotly_chart(fig_res_time, use_container_width=True)
+
+    with res_col2:
+        fig_res_hist = go.Figure()
+        fig_res_hist.add_trace(go.Histogram(
+            x=residuals, nbinsx=30,
+            marker_color="#a78bfa",
+            marker_line=dict(color="white", width=0.5),
+            opacity=0.85,
+        ))
+        fig_res_hist.add_vline(
+            x=mean_error, line_dash="dash", line_color="#fbbf24",
+            annotation_text=f"Mean: {mean_error:.2f}",
+            annotation_font_color="#fbbf24",
+        )
+        fig_res_hist.update_layout(
+            title="Distribution of Residuals",
+            xaxis_title="Residual", yaxis_title="Frequency",
+            height=350, **PLOTLY_LAYOUT,
+        )
+        st.plotly_chart(fig_res_hist, use_container_width=True)
+
+    # Display stats
+    res_s1, res_s2 = st.columns(2, gap="medium")
+    with res_s1:
+        st.markdown(
+            '<div class="kpi-card"><div class="kpi-label">📐 Mean Error (Bias)</div>'
+            f'<div class="kpi-value">{mean_error:.4f}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with res_s2:
+        st.markdown(
+            '<div class="kpi-card"><div class="kpi-label">📊 Std Deviation (Variance)</div>'
+            f'<div class="kpi-value">{std_error:.4f}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ============================================================
+# PART 2 — BASELINE vs ML COMPARISON
+# ============================================================
+st.markdown("---")
+st.markdown(
+    '<h2 style="text-align:center; color:#e2e8f0; margin: 10px 0 5px 0;">'
+    '📊 Baseline vs ML Forecast Comparison</h2>',
+    unsafe_allow_html=True,
+)
+
+with st.container():
+    actual_vals = y_test.values
+    ml_preds = selected_preds
+
+    # Naive forecast: prediction[t] = actual[t-1]
+    naive_preds = np.roll(actual_vals, 1)
+    naive_preds[0] = actual_vals[0]  # first value has no predecessor
+
+    # Compute metrics (skip first element for fair comparison)
+    from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+    ml_mae = mean_absolute_error(actual_vals[1:], ml_preds[1:])
+    ml_rmse = np.sqrt(mean_squared_error(actual_vals[1:], ml_preds[1:]))
+    naive_mae = mean_absolute_error(actual_vals[1:], naive_preds[1:])
+    naive_rmse = np.sqrt(mean_squared_error(actual_vals[1:], naive_preds[1:]))
+
+    mae_improvement = ((naive_mae - ml_mae) / naive_mae) * 100 if naive_mae > 0 else 0
+    rmse_improvement = ((naive_rmse - ml_rmse) / naive_rmse) * 100 if naive_rmse > 0 else 0
+
+    comp_data = pd.DataFrame({
+        "Model": ["Naive Baseline (t-1)", f"ML — {forecast_model}"],
+        "MAE": [round(naive_mae, 4), round(ml_mae, 4)],
+        "RMSE": [round(naive_rmse, 4), round(ml_rmse, 4)],
+    }).set_index("Model")
+
+    st.dataframe(comp_data, use_container_width=True)
+
+    if mae_improvement > 0:
+        st.markdown(
+            f'<div style="text-align:center; padding:15px; background:rgba(16,185,129,0.08); '
+            f'border:1px solid rgba(16,185,129,0.3); border-radius:12px; margin:10px 0;">'
+            f'<span style="color:#34d399; font-weight:700; font-size:1.1rem;">'
+            f'✅ ML reduces MAE by {mae_improvement:.1f}% and RMSE by {rmse_improvement:.1f}% '
+            f'vs naive baseline</span></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f'<div style="text-align:center; padding:15px; background:rgba(245,158,11,0.08); '
+            f'border:1px solid rgba(245,158,11,0.3); border-radius:12px; margin:10px 0;">'
+            f'<span style="color:#fbbf24; font-weight:700; font-size:1.1rem;">'
+            f'⚠️ ML MAE improvement: {mae_improvement:.1f}% — consider model retuning</span></div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ============================================================
+# PART 3 — SENSITIVITY ANALYSIS (Digital Twin Simulation)
+# ============================================================
+st.markdown("---")
+st.markdown(
+    '<h2 style="text-align:center; color:#e2e8f0; margin: 10px 0 5px 0;">'
+    '🎛️ Sensitivity Analysis — Digital Twin Simulation</h2>',
+    unsafe_allow_html=True,
+)
+
+with st.container():
+    st.markdown(
+        '<p style="text-align:center; color:#94a3b8; font-size:0.9rem; margin-bottom:15px;">'
+        'Explore how key parameters affect system behavior under the Policy Optimization Framework</p>',
+        unsafe_allow_html=True,
+    )
+
+    sa_c1, sa_c2, sa_c3 = st.columns(3, gap="medium")
+    with sa_c1:
+        sa_demand_range = st.slider("Demand Multiplier Range", 0.5, 1.5, (0.7, 1.3), 0.1,
+                                     key="sa_demand_range")
+    with sa_c2:
+        sa_lt_range = st.slider("Lead Time Range", 1, 10, (2, 8), 1, key="sa_lt_range")
+    with sa_c3:
+        sa_cost_range = st.slider("Supplier Cost Multiplier Range", 0.5, 1.5, (0.7, 1.3), 0.1,
+                                   key="sa_cost_range")
+
+    # Helper for sensitivity sweeps
+    def _run_sensitivity_sweep(param_name, param_values, sim_data_base):
+        """Sweep one parameter, return list of dicts with final_cash and stockout_rate."""
+        sweep_results = []
+        for pv in param_values:
+            sd = sim_data_base.copy()
+            kw = dict(
+                sim_lead_time=sim_lead_time,
+                sim_order_quantity=sim_order_quantity,
+                sim_holding_cost_ratio=sim_holding_cost,
+                sim_supplier_cost_ratio=sim_supplier_cost,
+                sim_initial_inventory=sim_initial_inventory,
+                sim_initial_cash=sim_initial_cash,
+            )
+            if param_name == "demand_multiplier":
+                sd = prepare_scenario_data(sd, demand_multiplier=pv)
+            elif param_name == "lead_time":
+                kw["sim_lead_time"] = int(pv)
+            elif param_name == "supplier_cost":
+                kw["sim_supplier_cost_ratio"] = sim_supplier_cost * pv
+                sd = prepare_scenario_data(sd, sc_supplier_cost_ratio=sim_supplier_cost * pv)
+
+            sim_r = run_inventory_simulation(sd, policy_type="adaptive",
+                                              safety_stock=safety_stock_val, **kw)
+            so_days = (sim_r["inventory"] < 0).sum()
+            so_rate = (so_days / len(sim_r)) * 100
+            fc = sim_r["cash_balance"].iloc[-1]
+            sweep_results.append({"param": pv, "final_cash": fc, "stockout_rate": so_rate})
+        return sweep_results
+
+    # Run sweeps
+    demand_vals = np.arange(sa_demand_range[0], sa_demand_range[1] + 0.01, 0.1)
+    lt_vals = list(range(sa_lt_range[0], sa_lt_range[1] + 1))
+    cost_vals = np.arange(sa_cost_range[0], sa_cost_range[1] + 0.01, 0.1)
+
+    sweep_demand = _run_sensitivity_sweep("demand_multiplier", demand_vals, sim_data)
+    sweep_lt = _run_sensitivity_sweep("lead_time", lt_vals, sim_data)
+    sweep_cost = _run_sensitivity_sweep("supplier_cost", cost_vals, sim_data)
+
+    # Plot: 2x2 grid (demand x 2, lead_time x 2) + additional cost plots
+    sa_row1_c1, sa_row1_c2 = st.columns(2, gap="large")
+
+    with sa_row1_c1:
+        fig_sa1 = go.Figure()
+        fig_sa1.add_trace(go.Scatter(
+            x=[r["param"] for r in sweep_demand],
+            y=[r["final_cash"] for r in sweep_demand],
+            mode="lines+markers", name="Final Cash",
+            line=dict(color=COLOR_ADAPTIVE, width=2.5),
+            marker=dict(size=7),
+        ))
+        fig_sa1.update_layout(
+            title="Demand Multiplier vs Final Cash",
+            xaxis_title="Demand Multiplier", yaxis_title="Final Cash (₹)",
+            height=320, **PLOTLY_LAYOUT,
+        )
+        st.plotly_chart(fig_sa1, use_container_width=True)
+
+    with sa_row1_c2:
+        fig_sa2 = go.Figure()
+        fig_sa2.add_trace(go.Scatter(
+            x=[r["param"] for r in sweep_demand],
+            y=[r["stockout_rate"] for r in sweep_demand],
+            mode="lines+markers", name="Stockout Rate",
+            line=dict(color="#f87171", width=2.5),
+            marker=dict(size=7),
+        ))
+        fig_sa2.update_layout(
+            title="Demand Multiplier vs Stockout Rate",
+            xaxis_title="Demand Multiplier", yaxis_title="Stockout Rate (%)",
+            height=320, **PLOTLY_LAYOUT,
+        )
+        st.plotly_chart(fig_sa2, use_container_width=True)
+
+    sa_row2_c1, sa_row2_c2 = st.columns(2, gap="large")
+
+    with sa_row2_c1:
+        fig_sa3 = go.Figure()
+        fig_sa3.add_trace(go.Scatter(
+            x=[r["param"] for r in sweep_lt],
+            y=[r["final_cash"] for r in sweep_lt],
+            mode="lines+markers", name="Final Cash",
+            line=dict(color=COLOR_SAFETY, width=2.5),
+            marker=dict(size=7),
+        ))
+        fig_sa3.update_layout(
+            title="Lead Time vs Final Cash",
+            xaxis_title="Lead Time (days)", yaxis_title="Final Cash (₹)",
+            height=320, **PLOTLY_LAYOUT,
+        )
+        st.plotly_chart(fig_sa3, use_container_width=True)
+
+    with sa_row2_c2:
+        fig_sa4 = go.Figure()
+        fig_sa4.add_trace(go.Scatter(
+            x=[r["param"] for r in sweep_lt],
+            y=[r["stockout_rate"] for r in sweep_lt],
+            mode="lines+markers", name="Stockout Rate",
+            line=dict(color="#fbbf24", width=2.5),
+            marker=dict(size=7),
+        ))
+        fig_sa4.update_layout(
+            title="Lead Time vs Stockout Rate",
+            xaxis_title="Lead Time (days)", yaxis_title="Stockout Rate (%)",
+            height=320, **PLOTLY_LAYOUT,
+        )
+        st.plotly_chart(fig_sa4, use_container_width=True)
+
+
+# ============================================================
+# PART 4 — SCENARIO TESTING
+# ============================================================
+st.markdown("---")
+st.markdown(
+    '<h2 style="text-align:center; color:#e2e8f0; margin: 10px 0 5px 0;">'
+    '⚡ Scenario Testing — Policy Robustness Under Stress</h2>',
+    unsafe_allow_html=True,
+)
+
+with st.container():
+    scenario_defs = [
+        {"name": "📈 Demand Spike (+30%)", "data_kw": {"demand_multiplier": 1.30}, "sim_kw": {}},
+        {"name": "🚚 Supply Delay (+3 days)", "data_kw": {}, "sim_kw": {"sim_lead_time": sim_lead_time + 3}},
+        {"name": "💸 Cost Increase (+20%)", "data_kw": {"sc_supplier_cost_ratio": sim_supplier_cost * 1.20},
+         "sim_kw": {"sim_supplier_cost_ratio": sim_supplier_cost * 1.20}},
+    ]
+
+    scenario_rows = []
+    for sc in scenario_defs:
+        sc_d = prepare_scenario_data(sim_data, **sc["data_kw"]) if sc["data_kw"] else sim_data.copy()
+        sc_kw = dict(
+            sim_lead_time=sim_lead_time,
+            sim_order_quantity=sim_order_quantity,
+            sim_holding_cost_ratio=sim_holding_cost,
+            sim_supplier_cost_ratio=sim_supplier_cost,
+            sim_initial_inventory=sim_initial_inventory,
+            sim_initial_cash=sim_initial_cash,
+        )
+        sc_kw.update(sc["sim_kw"])
+
+        sc_sim = run_inventory_simulation(sc_d, policy_type="adaptive",
+                                           safety_stock=safety_stock_val, **sc_kw)
+        sc_m = calculate_metrics(sc_sim, sc["name"])
+        scenario_rows.append({
+            "Scenario": sc["name"],
+            "Final Cash (₹)": round(sc_m["Final Cash"], 0),
+            "Stockout Rate (%)": round(sc_m["Stockout Rate (%)"], 2),
+            "Avg Inventory": round(sc_m["Avg Inventory"], 1),
+        })
+
+    scenario_df = pd.DataFrame(scenario_rows).set_index("Scenario")
+
+    # Highlight best/worst
+    best_scenario = scenario_df["Final Cash (₹)"].idxmax()
+    worst_scenario = scenario_df["Final Cash (₹)"].idxmin()
+
+    st.dataframe(scenario_df, use_container_width=True)
+
+    sc_h1, sc_h2 = st.columns(2, gap="medium")
+    with sc_h1:
+        st.markdown(
+            f'<div class="kpi-card"><div class="kpi-label">🟢 Best Case Scenario</div>'
+            f'<div class="kpi-value" style="font-size:1.1rem;">{best_scenario}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with sc_h2:
+        st.markdown(
+            f'<div class="kpi-card"><div class="kpi-label">🔴 Worst Case Scenario</div>'
+            f'<div class="kpi-value" style="font-size:1.1rem;">{worst_scenario}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ============================================================
+# PART 5 — POLICY RANKING SYSTEM (Policy Optimization Framework)
+# ============================================================
+st.markdown("---")
+st.markdown(
+    '<h2 style="text-align:center; color:#e2e8f0; margin: 10px 0 5px 0;">'
+    '🏆 Policy Ranking — Policy Optimization Framework</h2>',
+    unsafe_allow_html=True,
+)
+
+with st.container():
+    STOCKOUT_PENALTY = 5000.0
+    INVENTORY_PENALTY = 10.0
+
+    st.markdown(
+        '<p style="text-align:center; color:#94a3b8; font-size:0.85rem; margin-bottom:10px;">'
+        f'Scoring: <code>score = final_cash − ({STOCKOUT_PENALTY:,.0f} × stockout_rate) '
+        f'− ({INVENTORY_PENALTY:,.0f} × avg_inventory)</code></p>',
+        unsafe_allow_html=True,
+    )
+
+    ranking_rows = []
+    for pname, m in metrics.items():
+        score = (m["Final Cash"]
+                 - STOCKOUT_PENALTY * m["Stockout Rate (%)"]
+                 - INVENTORY_PENALTY * m["Avg Inventory"])
+        ranking_rows.append({
+            "Policy": pname,
+            "Final Cash (₹)": round(m["Final Cash"], 0),
+            "Stockout Rate (%)": round(m["Stockout Rate (%)"], 2),
+            "Avg Inventory": round(m["Avg Inventory"], 1),
+            "Score": round(score, 0),
+        })
+
+    ranking_df = pd.DataFrame(ranking_rows).sort_values("Score", ascending=False).reset_index(drop=True)
+    ranking_df.index = ranking_df.index + 1
+    ranking_df.index.name = "Rank"
+
+    st.dataframe(ranking_df, use_container_width=True)
+
+    recommended = ranking_df.iloc[0]["Policy"]
+    rec_score = ranking_df.iloc[0]["Score"]
+
+    st.markdown(
+        f'<div style="text-align:center; padding:18px; background:linear-gradient(135deg, '
+        f'rgba(16,185,129,0.1), rgba(59,130,246,0.1)); border:1px solid rgba(16,185,129,0.3); '
+        f'border-radius:14px; margin:15px 0;">'
+        f'<span style="color:#34d399; font-weight:800; font-size:1.2rem;">'
+        f'🏅 Recommended Policy: {recommended}</span><br>'
+        f'<span style="color:#94a3b8; font-size:0.9rem;">Score: {rec_score:,.0f}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
+# PART 6 — MONTE CARLO ENHANCEMENT (Monte Carlo Risk Analysis)
+# ============================================================
+st.markdown("---")
+st.markdown(
+    '<h2 style="text-align:center; color:#e2e8f0; margin: 10px 0 5px 0;">'
+    '📉 Monte Carlo Risk Analysis — Confidence Intervals</h2>',
+    unsafe_allow_html=True,
+)
+
+with st.container():
+    if mc_df is not None and fc_results is not None:
+        mc_mean = np.mean(fc_results)
+        mc_min = np.min(fc_results)
+        mc_max = np.max(fc_results)
+
+        # 90% Confidence Interval
+        ci_lower = np.percentile(fc_results, 5)
+        ci_upper = np.percentile(fc_results, 95)
+
+        ci_c1, ci_c2, ci_c3 = st.columns(3, gap="medium")
+        with ci_c1:
+            st.markdown(
+                '<div class="kpi-card"><div class="kpi-label">💰 Expected Final Cash</div>'
+                f'<div class="kpi-value">₹{mc_mean:,.0f}</div></div>',
+                unsafe_allow_html=True,
+            )
+        with ci_c2:
+            st.markdown(
+                '<div class="kpi-card"><div class="kpi-label">📊 90% CI Range</div>'
+                f'<div class="kpi-value" style="font-size:1.3rem;">₹{ci_lower:,.0f} — ₹{ci_upper:,.0f}</div></div>',
+                unsafe_allow_html=True,
+            )
+        with ci_c3:
+            st.markdown(
+                '<div class="kpi-card"><div class="kpi-label">🔻 Worst Case</div>'
+                f'<div class="kpi-value">₹{mc_min:,.0f}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<div style='height:15px'></div>", unsafe_allow_html=True)
+
+        st.markdown(
+            f'<div style="text-align:center; padding:20px; background:rgba(15,23,42,0.7); '
+            f'border:1px solid rgba(59,130,246,0.15); border-radius:14px;">'
+            f'<p style="color:#60a5fa; font-weight:700; font-size:1.05rem; margin:0 0 8px 0;">'
+            f'Stochastic Demand Modeling — Risk Summary</p>'
+            f'<p style="color:#e2e8f0; font-size:0.95rem; margin:3px 0;">'
+            f'Expected Cash: <strong>₹{mc_mean:,.0f}</strong></p>'
+            f'<p style="color:#e2e8f0; font-size:0.95rem; margin:3px 0;">'
+            f'Range (90% CI): <strong>₹{ci_lower:,.0f}</strong> – <strong>₹{ci_upper:,.0f}</strong></p>'
+            f'<p style="color:#e2e8f0; font-size:0.95rem; margin:3px 0;">'
+            f'Worst Case: <strong>₹{mc_min:,.0f}</strong></p></div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="text-align:center; padding:30px; color:#94a3b8;">'
+            '<p>Enable <strong>Stochastic Demand</strong> and run the simulation '
+            'to see Monte Carlo confidence intervals.</p></div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ============================================================
+# PART 7 — SUMMARY METRICS TABLE
+# ============================================================
+st.markdown("---")
+st.markdown(
+    '<h2 style="text-align:center; color:#e2e8f0; margin: 10px 0 5px 0;">'
+    '📋 Summary Metrics — Decision Support Table</h2>',
+    unsafe_allow_html=True,
+)
+
+with st.container():
+    summary_rows = []
+    for pname, m in metrics.items():
+        score = (m["Final Cash"]
+                 - STOCKOUT_PENALTY * m["Stockout Rate (%)"]
+                 - INVENTORY_PENALTY * m["Avg Inventory"])
+        summary_rows.append({
+            "Policy": pname,
+            "Final Cash (₹)": f"₹{m['Final Cash']:,.0f}",
+            "Stockout Rate (%)": f"{m['Stockout Rate (%)']:.2f}%",
+            "Avg Inventory": f"{m['Avg Inventory']:.1f}",
+            "Score": f"{score:,.0f}",
+        })
+
+    summary_df_display = pd.DataFrame(summary_rows).set_index("Policy")
+    st.dataframe(summary_df_display, use_container_width=True)
+
+    # Highlight best
+    best_policy = max(metrics.keys(),
+                      key=lambda p: metrics[p]["Final Cash"]
+                                    - STOCKOUT_PENALTY * metrics[p]["Stockout Rate (%)"]
+                                    - INVENTORY_PENALTY * metrics[p]["Avg Inventory"])
+    st.markdown(
+        f'<div style="text-align:center; padding:12px; color:#34d399; font-weight:700; '
+        f'font-size:1rem;">⭐ Best Policy: {best_policy}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
+# PART 8 — RESEARCH TERMINOLOGY NOTE
+# ============================================================
+st.markdown("---")
+st.markdown(
+    '<div style="text-align:center; padding:20px; background:rgba(15,23,42,0.7); '
+    'border:1px solid rgba(99,102,241,0.2); border-radius:14px; margin:10px 0;">'
+    '<p style="color:#a78bfa; font-weight:700; font-size:1.05rem; margin:0 0 10px 0;">'
+    '📖 Research Framework</p>'
+    '<p style="color:#94a3b8; font-size:0.88rem; margin:3px 0;">'
+    '• <strong style="color:#e2e8f0;">Digital Twin Simulation</strong> — '
+    'Virtual replication of supply chain for scenario exploration</p>'
+    '<p style="color:#94a3b8; font-size:0.88rem; margin:3px 0;">'
+    '• <strong style="color:#e2e8f0;">Stochastic Demand Modeling</strong> — '
+    'Probabilistic demand representation using Gaussian noise</p>'
+    '<p style="color:#94a3b8; font-size:0.88rem; margin:3px 0;">'
+    '• <strong style="color:#e2e8f0;">Monte Carlo Risk Analysis</strong> — '
+    'Multi-run simulation for uncertainty quantification and CI estimation</p>'
+    '<p style="color:#94a3b8; font-size:0.88rem; margin:3px 0;">'
+    '• <strong style="color:#e2e8f0;">Policy Optimization Framework</strong> — '
+    'Score-based ranking for data-driven policy recommendation</p></div>',
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# 🧪 SCENARIO ANALYSIS & POLICY EVALUATION
+# ============================================================
+st.markdown("---")
+st.markdown(
+    '<h2 style="text-align:center; color:#e2e8f0; font-weight:800; margin:10px 0 5px 0;">'
+    '🧪 Scenario Analysis &amp; Policy Evaluation</h2>'
+    '<p style="text-align:center; color:#94a3b8; font-size:0.9rem; margin:0 0 15px 0;">'
+    'Comparative scenario testing with score-based policy recommendation</p>',
+    unsafe_allow_html=True,
+)
+
+with st.container():
+    # ---------- PART 1 — Scenario Testing ----------
+    st.markdown('<div class="section-header">📊 Scenario Testing — Adaptive vs Baseline</div>',
+                unsafe_allow_html=True)
+
+    _sa_scenarios = [
+        {"name": "Base Case",             "dm": 1.0,  "lt_add": 0, "cost_mult": 1.0},
+        {"name": "Demand Spike (+30%)",    "dm": 1.30, "lt_add": 0, "cost_mult": 1.0},
+        {"name": "Supply Delay (+3 days)", "dm": 1.0,  "lt_add": 3, "cost_mult": 1.0},
+        {"name": "Cost Increase (+20%)",   "dm": 1.0,  "lt_add": 0, "cost_mult": 1.20},
+    ]
+
+    _sa_rows = []
+    _base_metrics = {}  # store base-case metrics for ranking
+
+    for _sc in _sa_scenarios:
+        # Prepare scenario data
+        _sc_cost = sim_supplier_cost * _sc["cost_mult"]
+        _data_kw = {}
+        if _sc["dm"] != 1.0:
+            _data_kw["demand_multiplier"] = _sc["dm"]
+        if _sc["cost_mult"] != 1.0:
+            _data_kw["sc_supplier_cost_ratio"] = _sc_cost
+        _sc_data = prepare_scenario_data(sim_data, **_data_kw) if _data_kw else sim_data.copy()
+
+        _sc_lt = sim_lead_time + _sc["lt_add"]
+        _sc_fixed_rp = average_train_demand * _sc_lt
+
+        # Common kwargs
+        _sc_kw = dict(
+            sim_lead_time=_sc_lt,
+            sim_order_quantity=sim_order_quantity,
+            sim_holding_cost_ratio=sim_holding_cost,
+            sim_supplier_cost_ratio=_sc_cost,
+            sim_initial_inventory=sim_initial_inventory,
+            sim_initial_cash=sim_initial_cash,
+        )
+
+        # Run Adaptive
+        _ad_sim = run_inventory_simulation(
+            _sc_data, policy_type="adaptive", safety_stock=safety_stock_val, **_sc_kw)
+        _ad_m = calculate_metrics(_ad_sim, "Adaptive")
+
+        # Run Baseline
+        _bl_sim = run_inventory_simulation(
+            _sc_data, policy_type="fixed", reorder_point_val=_sc_fixed_rp, **_sc_kw)
+        _bl_m = calculate_metrics(_bl_sim, "Baseline")
+
+        for _pname, _pm in [("Adaptive", _ad_m), ("Baseline", _bl_m)]:
+            _sa_rows.append({
+                "Scenario": _sc["name"],
+                "Policy": _pname,
+                "Final Cash (₹)": round(_pm["Final Cash"], 0),
+                "Stockout Rate (%)": round(_pm["Stockout Rate (%)"], 2),
+                "Avg Inventory": round(_pm["Avg Inventory"], 1),
+            })
+
+        # Save base case for ranking
+        if _sc["name"] == "Base Case":
+            _base_metrics["Adaptive"] = _ad_m
+            _base_metrics["Baseline"] = _bl_m
+
+    _sa_df = pd.DataFrame(_sa_rows)
+    st.dataframe(_sa_df.set_index(["Scenario", "Policy"]), use_container_width=True)
+
+    # ---------- PART 2 — Policy Ranking ----------
+    st.markdown('<div class="section-header">🏆 Policy Ranking (Base Case)</div>',
+                unsafe_allow_html=True)
+
+    _STOCKOUT_PEN = 5000.0
+    _INV_PEN = 10.0
+
+    _rank_rows = []
+    for _pn, _pm in _base_metrics.items():
+        _score = (_pm["Final Cash"]
+                  - _STOCKOUT_PEN * _pm["Stockout Rate (%)"]
+                  - _INV_PEN * _pm["Avg Inventory"])
+        _rank_rows.append({
+            "Policy": _pn,
+            "Final Cash (₹)": round(_pm["Final Cash"], 0),
+            "Stockout Rate (%)": round(_pm["Stockout Rate (%)"], 2),
+            "Avg Inventory": round(_pm["Avg Inventory"], 1),
+            "Score": round(_score, 0),
+        })
+
+    _rank_df = (pd.DataFrame(_rank_rows)
+                .sort_values("Score", ascending=False)
+                .reset_index(drop=True))
+    _rank_df.index = _rank_df.index + 1
+    _rank_df.index.name = "Rank"
+    st.dataframe(_rank_df, use_container_width=True)
+
+    _best = _rank_df.iloc[0]["Policy"]
+    st.markdown(
+        f'<div style="text-align:center; padding:16px; '
+        f'background:linear-gradient(135deg, rgba(16,185,129,0.1), rgba(59,130,246,0.1)); '
+        f'border:1px solid rgba(16,185,129,0.3); border-radius:14px; margin:12px 0;">'
+        f'<span style="color:#34d399; font-weight:800; font-size:1.15rem;">'
+        f'🏆 Recommended Policy: {_best}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    # ---------- PART 3 — Simple Insight Text ----------
+    _ad_base = _base_metrics.get("Adaptive", {})
+    _bl_base = _base_metrics.get("Baseline", {})
+
+    if _ad_base and _bl_base:
+        _insights = []
+        if _ad_base["Stockout Rate (%)"] < _bl_base["Stockout Rate (%)"]:
+            _insights.append(
+                "📦 **Adaptive policy improves service reliability** — "
+                f"stockout rate is {_ad_base['Stockout Rate (%)']:.2f}% vs "
+                f"baseline's {_bl_base['Stockout Rate (%)']:.2f}%."
+            )
+        else:
+            _insights.append(
+                "📦 **Baseline policy has comparable or better stockout performance** — "
+                f"stockout rate is {_bl_base['Stockout Rate (%)']:.2f}% vs "
+                f"adaptive's {_ad_base['Stockout Rate (%)']:.2f}%."
+            )
+
+        if _bl_base["Final Cash"] > _ad_base["Final Cash"]:
+            _insights.append(
+                "💰 **Baseline policy preserves more cash but risks stockouts** — "
+                f"final cash ₹{_bl_base['Final Cash']:,.0f} vs "
+                f"adaptive's ₹{_ad_base['Final Cash']:,.0f}."
+            )
+        else:
+            _insights.append(
+                "💰 **Adaptive policy yields higher final cash** — "
+                f"₹{_ad_base['Final Cash']:,.0f} vs "
+                f"baseline's ₹{_bl_base['Final Cash']:,.0f}."
+            )
+
+        if _ad_base["Avg Inventory"] > _bl_base["Avg Inventory"]:
+            _insights.append(
+                "📊 **Adaptive policy maintains higher average inventory** — "
+                f"acts as a buffer against demand uncertainty."
+            )
+
+        for _ins in _insights:
+            st.info(_ins)
+
+
+# ============================================================
+# 📈 SENSITIVITY ANALYSIS & RISK INTERPRETATION
+# ============================================================
+st.markdown("---")
+st.markdown(
+    '<h2 style="text-align:center; color:#e2e8f0; font-weight:800; margin:10px 0 5px 0;">'
+    '📈 Sensitivity Analysis &amp; Risk Interpretation</h2>'
+    '<p style="text-align:center; color:#94a3b8; font-size:0.9rem; margin:0 0 15px 0;">'
+    'Parameter sensitivity sweeps and Monte Carlo risk summary</p>',
+    unsafe_allow_html=True,
+)
+
+# ---------- PART 1 — Sensitivity Analysis ----------
+with st.container():
+    st.markdown('<div class="section-header">🎛️ One-at-a-Time Parameter Sensitivity</div>',
+                unsafe_allow_html=True)
+
+    # Define sweep values
+    _dm_vals = [0.8, 1.0, 1.2]
+    _lt_vals = [5, 8, 10]
+    _sc_vals = [0.5, 0.6, 0.7]
+
+    def _quick_sweep(param_type, values):
+        """Lightweight sweep — vary one parameter, keep others at sidebar defaults."""
+        out = []
+        for v in values:
+            _kw = dict(
+                sim_lead_time=sim_lead_time,
+                sim_order_quantity=sim_order_quantity,
+                sim_holding_cost_ratio=sim_holding_cost,
+                sim_supplier_cost_ratio=sim_supplier_cost,
+                sim_initial_inventory=sim_initial_inventory,
+                sim_initial_cash=sim_initial_cash,
+            )
+            _sd = sim_data.copy()
+
+            if param_type == "demand":
+                _sd = prepare_scenario_data(_sd, demand_multiplier=v)
+            elif param_type == "lead_time":
+                _kw["sim_lead_time"] = int(v)
+            elif param_type == "cost":
+                _kw["sim_supplier_cost_ratio"] = v
+                _sd = prepare_scenario_data(_sd, sc_supplier_cost_ratio=v)
+
+            _sim = run_inventory_simulation(
+                _sd, policy_type="adaptive", safety_stock=safety_stock_val, **_kw)
+            _so = ((_sim["inventory"] < 0).sum() / len(_sim)) * 100
+            out.append({"val": v, "cash": _sim["cash_balance"].iloc[-1], "so": _so})
+        return out
+
+    _res_dm = _quick_sweep("demand", _dm_vals)
+    _res_lt = _quick_sweep("lead_time", _lt_vals)
+
+    # --- Row 1: Demand Multiplier plots ---
+    _sr1c1, _sr1c2 = st.columns(2, gap="large")
+
+    with _sr1c1:
+        _fig_dm_cash = go.Figure()
+        _fig_dm_cash.add_trace(go.Scatter(
+            x=[r["val"] for r in _res_dm],
+            y=[r["cash"] for r in _res_dm],
+            mode="lines+markers", name="Final Cash",
+            line=dict(color=COLOR_ADAPTIVE, width=2.5),
+            marker=dict(size=8),
+        ))
+        _fig_dm_cash.update_layout(
+            title="Demand Multiplier vs Final Cash",
+            xaxis_title="Demand Multiplier", yaxis_title="Final Cash (₹)",
+            height=320, **PLOTLY_LAYOUT,
+        )
+        st.plotly_chart(_fig_dm_cash, use_container_width=True)
+
+    with _sr1c2:
+        _fig_dm_so = go.Figure()
+        _fig_dm_so.add_trace(go.Scatter(
+            x=[r["val"] for r in _res_dm],
+            y=[r["so"] for r in _res_dm],
+            mode="lines+markers", name="Stockout Rate",
+            line=dict(color="#f87171", width=2.5),
+            marker=dict(size=8),
+        ))
+        _fig_dm_so.update_layout(
+            title="Demand Multiplier vs Stockout Rate",
+            xaxis_title="Demand Multiplier", yaxis_title="Stockout Rate (%)",
+            height=320, **PLOTLY_LAYOUT,
+        )
+        st.plotly_chart(_fig_dm_so, use_container_width=True)
+
+    # --- Row 2: Lead Time plots ---
+    _sr2c1, _sr2c2 = st.columns(2, gap="large")
+
+    with _sr2c1:
+        _fig_lt_cash = go.Figure()
+        _fig_lt_cash.add_trace(go.Scatter(
+            x=[r["val"] for r in _res_lt],
+            y=[r["cash"] for r in _res_lt],
+            mode="lines+markers", name="Final Cash",
+            line=dict(color=COLOR_SAFETY, width=2.5),
+            marker=dict(size=8),
+        ))
+        _fig_lt_cash.update_layout(
+            title="Lead Time vs Final Cash",
+            xaxis_title="Lead Time (days)", yaxis_title="Final Cash (₹)",
+            height=320, **PLOTLY_LAYOUT,
+        )
+        st.plotly_chart(_fig_lt_cash, use_container_width=True)
+
+    with _sr2c2:
+        _fig_lt_so = go.Figure()
+        _fig_lt_so.add_trace(go.Scatter(
+            x=[r["val"] for r in _res_lt],
+            y=[r["so"] for r in _res_lt],
+            mode="lines+markers", name="Stockout Rate",
+            line=dict(color="#fbbf24", width=2.5),
+            marker=dict(size=8),
+        ))
+        _fig_lt_so.update_layout(
+            title="Lead Time vs Stockout Rate",
+            xaxis_title="Lead Time (days)", yaxis_title="Stockout Rate (%)",
+            height=320, **PLOTLY_LAYOUT,
+        )
+        st.plotly_chart(_fig_lt_so, use_container_width=True)
+
+
+# ---------- PART 2 & 3 — Monte Carlo Risk Interpretation ----------
+st.markdown('<div class="section-header">🎲 Risk Interpretation</div>',
+            unsafe_allow_html=True)
+
+with st.container():
+    if mc_df is not None and fc_results is not None and so_results is not None:
+        _mc_mean = float(np.mean(fc_results))
+        _mc_min = float(np.min(fc_results))
+        _mc_max = float(np.max(fc_results))
+        _ci_lo = float(np.percentile(fc_results, 5))
+        _ci_hi = float(np.percentile(fc_results, 95))
+
+        _ri_c1, _ri_c2, _ri_c3, _ri_c4 = st.columns(4, gap="medium")
+        with _ri_c1:
+            st.markdown(
+                '<div class="kpi-card"><div class="kpi-label">💰 Expected Cash</div>'
+                f'<div class="kpi-value">₹{_mc_mean:,.0f}</div></div>',
+                unsafe_allow_html=True)
+        with _ri_c2:
+            st.markdown(
+                '<div class="kpi-card"><div class="kpi-label">📊 90% Range</div>'
+                f'<div class="kpi-value" style="font-size:1.2rem;">₹{_ci_lo:,.0f} – ₹{_ci_hi:,.0f}</div></div>',
+                unsafe_allow_html=True)
+        with _ri_c3:
+            st.markdown(
+                '<div class="kpi-card"><div class="kpi-label">🔻 Worst Case</div>'
+                f'<div class="kpi-value">₹{_mc_min:,.0f}</div></div>',
+                unsafe_allow_html=True)
+        with _ri_c4:
+            st.markdown(
+                '<div class="kpi-card"><div class="kpi-label">🔺 Best Case</div>'
+                f'<div class="kpi-value">₹{_mc_max:,.0f}</div></div>',
+                unsafe_allow_html=True)
+
+        # --- PART 3 — Risk Insight ---
+        st.markdown("<div style='height:15px'></div>", unsafe_allow_html=True)
+
+        _mean_so = float(np.mean(so_results))
+        _so_prob = _mean_so / 100.0  # convert percentage to probability
+
+        if _so_prob < 0.1:
+            st.success(
+                "✅ **Low Risk** — System operates under low risk. "
+                f"Mean stockout rate is {_mean_so:.2f}%, indicating stable supply chain performance."
+            )
+        elif _so_prob < 0.3:
+            st.warning(
+                "⚠️ **Moderate Risk** — Moderate risk under demand uncertainty. "
+                f"Mean stockout rate is {_mean_so:.2f}%. Consider increasing safety stock or order quantity."
+            )
+        else:
+            st.error(
+                "🔴 **High Risk** — Potential supply chain instability detected. "
+                f"Mean stockout rate is {_mean_so:.2f}%. Immediate parameter tuning recommended."
+            )
+    else:
+        st.markdown(
+            '<div style="text-align:center; padding:30px; color:#94a3b8;">'
+            '<p>Enable <strong>Stochastic Demand</strong> in the sidebar and run the simulation '
+            'to view Monte Carlo risk interpretation.</p></div>',
+            unsafe_allow_html=True,
+        )
+
+
 # ---- Footer ----
 st.markdown("---")
 st.markdown(
