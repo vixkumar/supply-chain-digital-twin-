@@ -1,0 +1,15 @@
+# Large data files (exceed GitHub 100MB limit)
+sales_train_evaluation.csv
+sell_prices.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# System
+.DS_Store
+
+# Output
+output.log
+*.png
